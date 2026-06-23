@@ -1,0 +1,39 @@
+# Dolt sql-server config for benchmarking. Knob-for-knob notes vs the MySQL
+# compose so the two stay comparable.
+
+log_level: info
+
+behavior:
+  read_only: false
+  autocommit: true
+  # Dolt analog of durability. Leave FALSE: when true, every SQL transaction
+  # also creates a *Dolt commit* (version-control commit) — extra work that
+  # has no MySQL equivalent and would unfairly penalize Dolt. With it false,
+  # Dolt still durably persists each transaction to its on-disk storage
+  # journal (fsync), which is the closest match to MySQL's
+  # innodb-flush-log-at-trx-commit=1.
+  dolt_transaction_commit: false
+
+# Superuser. Seeded from DOLT_ROOT_PASSWORD in compose; the benchbase `admin`
+# user is created by initdb/init.sql.
+user:
+  name: root
+  password: password
+
+listener:
+  host: 0.0.0.0
+  port: 3306
+  # Match MySQL's --max-connections=512.
+  max_connections: 512
+  # TPC-C transactions can run long under load; don't let the server time out
+  # idle benchmark connections mid-run (8h, in millis).
+  read_timeout_millis: 28800000
+  write_timeout_millis: 28800000
+
+# Notes on knobs with NO Dolt analog (intentionally omitted):
+#   innodb-buffer-pool-size : Dolt has no fixed buffer pool; it caches storage
+#                             chunks via the OS page cache + its own table
+#                             cache. For fairness, size the dataset to fit RAM
+#                             (mem_limit) so neither engine is disk-bound.
+#   innodb-redo-log-capacity: no redo log in Dolt.
+#   --skip-log-bin          : no binlog in Dolt (nothing to disable).

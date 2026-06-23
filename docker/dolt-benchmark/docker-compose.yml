@@ -1,0 +1,55 @@
+# Dolt SQL server tuned for benchmarking (TPC-C via BenchBase).
+#
+# Mirror of docker/mysql-benchmark/docker-compose.yml: same resource limits,
+# same port, same benchbase/admin/password credentials, so the only variable
+# between runs is the engine itself. Comments map each MySQL knob to its Dolt
+# analog (or note where none exists).
+#
+#   docker compose -f docker-compose.yml up -d
+#   docker compose logs -f dolt          # wait for "Server ready. Accepting connections."
+#   docker compose down -v               # -v also drops the data volume
+
+services:
+
+  dolt:
+    container_name: dolt-bench
+    hostname: dolt
+    image: dolthub/dolt-sql-server:latest   # pin a digest/tag once you settle on a version
+    restart: "no"
+
+    # ---- Resource pinning -------------------------------------------------
+    # MUST be identical to the MySQL compose, or the comparison is meaningless.
+    cpus: "4"
+    mem_limit: "16g"
+
+    environment:
+      # The dolt image seeds the superuser from these (analogous to MySQL's
+      # MYSQL_ROOT_PASSWORD). The benchbase user/db are created by initdb below.
+      DOLT_ROOT_PASSWORD: password
+
+    ports:
+      - "3306:3306"
+
+    # ---- Server config ----------------------------------------------------
+    # Dropped into /etc/dolt/servercfg.d/, which the image passes to
+    # `dolt sql-server --config`. This is where max_connections, the listener,
+    # and durability behavior live (see server.yaml for the per-knob notes).
+    # ---- Init scripts -----------------------------------------------------
+    # Run once on first start (like MySQL's /docker-entrypoint-initdb.d):
+    # creates the `benchbase` database and the `admin` user the BenchBase
+    # config expects.
+    volumes:
+      - ./config/server.yaml:/etc/dolt/servercfg.d/server.yaml:ro
+      - ./initdb/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Dolt's data dir. Same disk-class caveat as MySQL: on EC2, mount both
+      # engines' data on the SAME volume type (local NVMe vs gp3 EBS dominates).
+      - dolt-data:/var/lib/dolt
+
+    healthcheck:
+      test: ["CMD", "dolt", "sql", "-q", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  dolt-data:

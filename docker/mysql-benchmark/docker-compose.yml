@@ -1,0 +1,90 @@
+# MySQL server tuned for benchmarking (TPC-C via BenchBase).
+#
+# Every setting that materially affects benchmark numbers is made EXPLICIT
+# here rather than left to image defaults, so the same decisions can be
+# mirrored 1:1 in the Dolt compose file. Notes call out the Dolt analog
+# (or "no analog") for each knob.
+#
+#   docker compose -f docker-compose.yml up -d
+#   docker compose logs -f mysql        # wait for "ready for connections"
+#   docker compose down -v              # -v also drops the data volume
+
+services:
+
+  mysql:
+    container_name: mysql-bench
+    hostname: mysql
+    image: mysql:8.4            # pin an exact tag for reproducibility; avoid ":latest"
+    restart: "no"              # never auto-restart mid-run; a crash should fail loudly
+
+    # ---- Resource pinning -------------------------------------------------
+    # Pin CPU and RAM so the DB gets a fixed, known slice of the host. Use the
+    # IDENTICAL limits in the Dolt compose so neither engine gets more hardware.
+    cpus: "4"
+    mem_limit: "16g"
+    # MySQL listens with these knobs. Anything not durability/cache related is
+    # left default on purpose to keep the surface small.
+    command:
+      - --max-connections=512
+      # --- InnoDB buffer pool: THE most important knob -------------------
+      # The in-memory page cache. Set it to comfortably hold the working set
+      # (a TPC-C warehouse is ~100MB of data; scalefactor=100 -> ~10GB).
+      # Too small => disk-bound and you measure I/O, not the engine.
+      # Dolt analog: no buffer-pool knob; Dolt caches chunks differently.
+      # For a fair fight, size this to FIT the dataset so both run in-memory.
+      - --innodb-buffer-pool-size=10G
+      # --- Redo log sizing ----------------------------------------------
+      # Bigger redo => fewer flush stalls under write-heavy TPC-C.
+      # (8.0.30+ / 8.4 use redo-log-capacity instead of innodb-log-file-size.)
+      # Dolt analog: none (no redo log).
+      - --innodb-redo-log-capacity=4G
+      # --- Durability: keep this CONSISTENT across MySQL and Dolt --------
+      # 1 = full ACID, fsync on every commit (realistic, slower).
+      # 2 = flush to OS each commit, fsync ~1/sec (faster, loses <1s on crash).
+      # 0 = fastest, least safe.
+      # Whatever you pick, set the matching Dolt durability so you compare
+      # like-for-like. Dolt analog: `--persistence-behavior` / dolt's fsync
+      # behavior on commit.
+      - --innodb-flush-log-at-trx-commit=1
+      # O_DIRECT bypasses the OS page cache for data files so the buffer pool
+      # isn't double-cached (otherwise RAM accounting is misleading).
+      - --innodb-flush-method=O_DIRECT
+      # Doublewrite buffer = crash safety for torn pages. ON is the honest
+      # default; turning it OFF inflates write numbers. Keep ON for fairness.
+      - --innodb-doublewrite=ON
+      # --- Binary log: replication/PITR overhead ------------------------
+      # The binlog adds real write cost. For a pure single-node engine
+      # comparison, disable it on BOTH sides. If you need it on, set
+      # sync-binlog=1 and disable it (or its analog) equivalently on Dolt.
+      - --skip-log-bin
+      # --- Isolation: match the BenchBase config ------------------------
+      # sample_tpcc_config.xml requests TRANSACTION_SERIALIZABLE per-connection,
+      # so server default mostly doesn't matter, but pin it to be explicit.
+      - --transaction-isolation=SERIALIZABLE
+
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: password
+      MYSQL_DATABASE: benchbase     # matches config/mysql/sample_tpcc_config.xml
+
+    ports:
+      - "3306:3306"
+
+    # ---- Storage ----------------------------------------------------------
+    # Put the data dir on a NAMED volume (or bind-mount to a known fast disk).
+    # On EC2 this is critical: the difference between gp3 EBS and a local NVMe
+    # instance-store volume dwarfs most engine differences. Mount BOTH engines'
+    # data on the SAME class of disk.
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+    # Don't start benchmarking until the server actually accepts connections.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ppassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mysql-data:
