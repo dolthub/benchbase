@@ -41,7 +41,6 @@ public abstract class GenericQuery extends Procedure {
       if (queryTimeoutSeconds > 0) {
         stmt.setQueryTimeout(queryTimeoutSeconds);
       }
-      long startNanos = System.nanoTime();
       try (ResultSet rs = stmt.executeQuery()) {
         while (rs.next()) {
           // do nothing
@@ -49,21 +48,6 @@ public abstract class GenericQuery extends Procedure {
       } catch (SQLSyntaxErrorException ex) {
         if (LOG.isDebugEnabled()) {
           LOG.debug(this.getClass().getName() + ": stmt: " + stmt.toString());
-        }
-        throw ex;
-      } catch (SQLException ex) {
-        // A query timeout (with queryTimeoutKillsConnection=true) surfaces as a connection abort,
-        // not a SQLTimeoutException, and the worker logs connection errors only at DEBUG. Detect it
-        // by elapsed time so the timeout is still logged like an exception (WARN + stack trace),
-        // then propagate so the run advances to the next query.
-        long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
-        if (queryTimeoutSeconds > 0 && elapsedSeconds >= queryTimeoutSeconds) {
-          LOG.warn(
-              "{} timed out after ~{}s (limit {}s)",
-              this.getClass().getSimpleName(),
-              elapsedSeconds,
-              queryTimeoutSeconds,
-              ex);
         }
         throw ex;
       }

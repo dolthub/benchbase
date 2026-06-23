@@ -32,6 +32,7 @@ import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
+import java.sql.SQLTimeoutException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.HashMap;
@@ -473,6 +474,28 @@ public abstract class Worker<T extends BenchmarkModule> implements Runnable {
           break;
 
         } catch (SQLException ex) {
+          // A query that exceeded its configured timeout must fail and move on -- never retry,
+          // regardless of the <retries> setting or how the timeout aborted the connection.
+          if (ex instanceof SQLTimeoutException) {
+            LOG.warn(
+                String.format(
+                    "Query timed out during [%s] and will not be retried... sql state [%s], error code [%d].",
+                    transactionType, ex.getSQLState(), ex.getErrorCode()),
+                ex);
+            // The connection may have been aborted (queryTimeoutKillsConnection); drop it so the
+            // next transaction gets a fresh one.
+            try {
+              if (conn != null) {
+                conn.close();
+              }
+            } catch (SQLException ignore) {
+              // already broken; nothing to do
+            }
+            conn = null;
+            status = TransactionStatus.ERROR;
+            break;
+          }
+
           // check if we should attempt to ignore connection errors and reconnect
           boolean isConnectionErrorException = SQLUtil.isConnectionErrorException(ex);
 
