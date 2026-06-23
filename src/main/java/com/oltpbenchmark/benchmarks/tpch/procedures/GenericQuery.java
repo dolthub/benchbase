@@ -24,6 +24,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLSyntaxErrorException;
+import java.sql.SQLTimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,12 +35,24 @@ public abstract class GenericQuery extends Procedure {
   protected abstract PreparedStatement getStatement(
       Connection conn, RandomGenerator rand, double scaleFactor) throws SQLException;
 
-  public void run(Connection conn, RandomGenerator rand, double scaleFactor) throws SQLException {
+  public void run(
+      Connection conn, RandomGenerator rand, double scaleFactor, int queryTimeoutSeconds)
+      throws SQLException {
     try (PreparedStatement stmt = getStatement(conn, rand, scaleFactor)) {
+      if (queryTimeoutSeconds > 0) {
+        stmt.setQueryTimeout(queryTimeoutSeconds);
+      }
       try (ResultSet rs = stmt.executeQuery()) {
         while (rs.next()) {
           // do nothing
         }
+      } catch (SQLTimeoutException ex) {
+        // Log it like an exception (WARN + stack trace), independent of the worker's retry
+        // classification, then propagate so the txn is recorded as failed and the run advances
+        // to the next query.
+        LOG.warn(
+            "{} timed out after {}s", this.getClass().getSimpleName(), queryTimeoutSeconds, ex);
+        throw ex;
       } catch (SQLSyntaxErrorException ex) {
         if (LOG.isDebugEnabled()) {
           LOG.debug(this.getClass().getName() + ": stmt: " + stmt.toString());

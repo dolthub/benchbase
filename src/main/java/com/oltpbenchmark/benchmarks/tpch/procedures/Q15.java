@@ -73,7 +73,9 @@ public class Q15 extends GenericQuery {
             """);
 
   @Override
-  public void run(Connection conn, RandomGenerator rand, double scaleFactor) throws SQLException {
+  public void run(
+      Connection conn, RandomGenerator rand, double scaleFactor, int queryTimeoutSeconds)
+      throws SQLException {
     // With this query, we have to set up a view before we execute the
     // query, then drop it once we're done.
     try (Statement stmt = conn.createStatement()) {
@@ -87,7 +89,7 @@ public class Q15 extends GenericQuery {
         String sql = createview_stmt.getSQL();
         sql = sql.replace("?", String.format("'%s'", date));
         stmt.execute(sql);
-        super.run(conn, rand, scaleFactor);
+        super.run(conn, rand, scaleFactor, queryTimeoutSeconds);
       } finally {
         String sql = dropview_stmt.getSQL();
         stmt.execute(sql);

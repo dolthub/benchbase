@@ -144,6 +144,13 @@ public class DBWorkload {
       wrkld.setReconnectOnConnectionFailure(
           xmlConfig.getBoolean("reconnectOnConnectionFailure", false));
 
+      // Per-query timeout: XML <queryTimeout> default, overridable by --query-timeout CLI option.
+      int queryTimeout = xmlConfig.getInt("queryTimeout", 0);
+      if (argsLine.hasOption("query-timeout")) {
+        queryTimeout = Integer.parseInt(argsLine.getOptionValue("query-timeout"));
+      }
+      wrkld.setQueryTimeoutSeconds(queryTimeout);
+
       int terminals = xmlConfig.getInt("terminals[not(@bench)]", 0);
       terminals = xmlConfig.getInt("terminals" + pluginTest, terminals);
       wrkld.setTerminals(terminals);
@@ -197,6 +204,7 @@ public class DBWorkload {
       initDebug.put("URL", wrkld.getUrl());
       initDebug.put("Isolation", wrkld.getIsolationString());
       initDebug.put("Batch Size", wrkld.getBatchSize());
+      initDebug.put("Query Timeout (s)", wrkld.getQueryTimeoutSeconds());
       initDebug.put("DDL Path", wrkld.getDDLPath());
       initDebug.put("Loader Threads", wrkld.getLoaderThreads());
       initDebug.put("Session Setup File", wrkld.getSessionSetupFile());
@@ -612,6 +620,11 @@ public class DBWorkload {
         "Base directory for the result files, default is current directory");
     options.addOption(null, "dialects-export", true, "Export benchmark SQL to a dialects file");
     options.addOption("jh", "json-histograms", true, "Export histograms to JSON file");
+    options.addOption(
+        "qt",
+        "query-timeout",
+        true,
+        "Per-query timeout in seconds (0 = no timeout). Overrides <queryTimeout> in the config.");
     return options;
   }
 

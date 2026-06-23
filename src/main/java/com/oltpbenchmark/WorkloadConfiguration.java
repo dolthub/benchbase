@@ -35,6 +35,7 @@ public class WorkloadConfiguration {
   private String password;
   private String driverClass;
   private int batchSize;
+  private int queryTimeoutSeconds = 0; // 0 = no per-query timeout
   private String sessionSetupFile;
   private int maxRetries;
   private int randomSeed = -1;
@@ -121,6 +122,14 @@ public class WorkloadConfiguration {
 
   public void setBatchSize(int batchSize) {
     this.batchSize = batchSize;
+  }
+
+  public int getQueryTimeoutSeconds() {
+    return queryTimeoutSeconds;
+  }
+
+  public void setQueryTimeoutSeconds(int queryTimeoutSeconds) {
+    this.queryTimeoutSeconds = queryTimeoutSeconds;
   }
 
   public String getSessionSetupFile() {
